@@ -340,6 +340,14 @@ class _ReorderableBuilderState extends State<ReorderableBuilder>
         newIndex: newIndex,
       );
       widget.onReorder!(orderUpdateEntities);
+    } else if (_draggedReorderableEntity!.overLockedId >= 0) {
+      final orderUpdateEntities = [
+        OrderUpdateEntity(
+          oldIndex: oldIndex,
+          newIndex: _draggedReorderableEntity!.overLockedId,
+        ),
+      ];
+      widget.onReorder!(orderUpdateEntities);
     }
 
     setState(() {
@@ -492,30 +500,50 @@ class _ReorderableBuilderState extends State<ReorderableBuilder>
       draggedOffset: draggedOffset,
     );
 
-    if (collisionMapEntry != null &&
-        !widget.lockedIndices
+    if (collisionMapEntry != null) {
+        if (!widget.lockedIndices
             .contains(collisionMapEntry.value.updatedOrderId)) {
-      final draggedOrderId = _draggedReorderableEntity!.updatedOrderId;
-      final collisionOrderId = collisionMapEntry.value.updatedOrderId;
+          final draggedOrderId = _draggedReorderableEntity!.updatedOrderId;
+          final collisionOrderId = collisionMapEntry.value.updatedOrderId;
 
-      final difference = draggedOrderId - collisionOrderId;
-      if (difference > 1) {
-        _updateMultipleCollisions(
-          collisionOrderId: collisionOrderId,
-          draggedHashKey: draggedHashKey,
-          isBackwards: true,
-        );
-      } else if (difference < -1) {
-        _updateMultipleCollisions(
-          collisionOrderId: collisionOrderId,
-          draggedHashKey: draggedHashKey,
-          isBackwards: false,
-        );
-      } else {
-        _updateCollision(
-          draggedHashKey: draggedHashKey,
-          collisionMapEntry: collisionMapEntry,
-        );
+          final difference = draggedOrderId - collisionOrderId;
+          if (difference > 1) {
+            _updateMultipleCollisions(
+              collisionOrderId: collisionOrderId,
+              draggedHashKey: draggedHashKey,
+              isBackwards: true,
+            );
+          } else if (difference < -1) {
+            _updateMultipleCollisions(
+              collisionOrderId: collisionOrderId,
+              draggedHashKey: draggedHashKey,
+              isBackwards: false,
+            );
+          } else {
+            _updateCollision(
+              draggedHashKey: draggedHashKey,
+              collisionMapEntry: collisionMapEntry,
+            );
+          }
+          return;
+        }
+        setState(() {
+          final updatedItem = _childrenMap[draggedHashKey]!.copyWith(
+            updatedOrderId: _draggedReorderableEntity!.originalOrderId,
+            overLockedId: collisionMapEntry.value.updatedOrderId,
+          );
+          _childrenMap[draggedHashKey] = updatedItem;
+          _draggedReorderableEntity = updatedItem;
+        });
+    } else {
+      if (_childrenMap[draggedHashKey]?.overLockedId != 0) {
+        setState(() {
+          final updatedItem = _childrenMap[draggedHashKey]!.copyWith(
+            overLockedId: -1,
+          );
+          _childrenMap[draggedHashKey] = updatedItem;
+          _draggedReorderableEntity = updatedItem;
+        });
       }
     }
   }
@@ -573,6 +601,7 @@ class _ReorderableBuilderState extends State<ReorderableBuilder>
     final updatedDraggedEntity = _draggedReorderableEntity!.copyWith(
       updatedOffset: collisionMapEntry.value.updatedOffset,
       updatedOrderId: collisionMapEntry.value.updatedOrderId,
+      overLockedId: -1,
     );
     _childrenMap[draggedHashKey] = updatedDraggedEntity;
 
@@ -715,6 +744,7 @@ class _ReorderableBuilderState extends State<ReorderableBuilder>
           updatedOrderId: orderId,
           isBuilding: false,
           isNew: true,
+          overLockedId: -1,
         );
       }
       orderId++;
@@ -817,6 +847,7 @@ class _ReorderableBuilderState extends State<ReorderableBuilder>
         updatedOffset: updatedOffset,
         size: size,
         originalOrderId: reorderableEntity.updatedOrderId,
+        overLockedId: -1,
         hasSwappedOrder: false,
       );
       setState(() {});

@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_reorderable_grid_view/entities/reorderable_entity.dart';
+import 'package:rxdart/rxdart.dart';
 
 typedef OnCreatedFunction = ReorderableEntity? Function(
   ReorderableEntity reorderableEntity,
@@ -9,6 +12,8 @@ typedef OnCreatedFunction = ReorderableEntity? Function(
 typedef OnDragUpdateFunction = Function(
   DragUpdateDetails details,
 );
+
+typedef OnProlongPressFunction = void Function(BuildContext context);
 
 /// Enables drag and drop behaviour for [child].
 ///
@@ -55,6 +60,7 @@ class _ReorderableDraggableState extends State<ReorderableDraggable>
     with TickerProviderStateMixin {
   late final AnimationController _controller;
   late final DecorationTween _decorationTween;
+  final _updateFeedbackStream = BehaviorSubject<bool>();
 
   /// Holding instance to get direct access of entity when created
   late ReorderableEntity _reorderableEntity;
@@ -74,6 +80,17 @@ class _ReorderableDraggableState extends State<ReorderableDraggable>
     ],
   );
 
+  final _redBoxDecoration = BoxDecoration(
+    boxShadow: <BoxShadow>[
+      BoxShadow(
+        color: Colors.red.withOpacity(0.6),
+        spreadRadius: 5,
+        blurRadius: 6,
+        offset: const Offset(0, 3), // changes position of shadow
+      ),
+    ],
+  );
+
   @override
   void initState() {
     super.initState();
@@ -86,14 +103,28 @@ class _ReorderableDraggableState extends State<ReorderableDraggable>
       duration: const Duration(milliseconds: 250),
     );
 
+    _decorationTween = DecorationTween();
+    _resetDecoration();
+  }
+
+  void _resetDecoration() {
+    _controller.reset();
+
     final beginDragBoxDecoration = widget.dragChildBoxDecoration?.copyWith(
       color: Colors.transparent,
       boxShadow: [],
     );
-    _decorationTween = DecorationTween(
-      begin: beginDragBoxDecoration ?? const BoxDecoration(),
-      end: widget.dragChildBoxDecoration ?? _defaultBoxDecoration,
-    );
+    _decorationTween.begin = beginDragBoxDecoration ?? const BoxDecoration();
+    _decorationTween.end = widget.dragChildBoxDecoration ?? _defaultBoxDecoration;
+  }
+
+  void _animateToDecoration(BoxDecoration decoration) {
+    if (decoration == _decorationTween.end) return;
+
+    _decorationTween.begin = _decorationTween.end;
+    _decorationTween.end = decoration;
+    _controller.reset();
+    _controller.forward();
   }
 
   @override
@@ -119,22 +150,38 @@ class _ReorderableDraggableState extends State<ReorderableDraggable>
       child: reorderableEntityChild,
     );
 
-    final feedback = Material(
-      color: Colors.transparent, // removes white corners when having shadow
-      child: SizedBox(
-        height: _reorderableEntity.size.height,
-        width: _reorderableEntity.size.width,
-        child: DecoratedBoxTransition(
-          position: DecorationPosition.background,
-          decoration: _decorationTween.animate(_controller),
-          child: reorderableEntityChild,
-        ),
-      ),
+    final feedback = StreamBuilder(
+      stream: _updateFeedbackStream,
+      builder: (BuildContext context, AsyncSnapshot<bool> snapshot) {
+        if (_reorderableEntity.overLockedId >= 0) {
+          _animateToDecoration(_redBoxDecoration);
+        } else {
+          _animateToDecoration(_defaultBoxDecoration);
+        }
+
+        return Material(
+          color: Colors.transparent, // removes white corners when having shadow
+          child: SizedBox(
+            height: _reorderableEntity.size.height,
+            width: _reorderableEntity.size.width,
+            child: DecoratedBoxTransition(
+              position: DecorationPosition.background,
+              decoration: _decorationTween.animate(_controller),
+              child: reorderableEntityChild,
+            ),
+          ),
+        );
+      },
     );
 
     final draggedHashKey = widget.draggedReorderableEntity?.child.key.hashCode;
     final hashKey = reorderableEntityChild.key.hashCode;
     final visible = hashKey != draggedHashKey;
+
+    if (!visible) {
+      // Update feedback of dragged widget
+      _updateFeedbackStream.add(true);
+    }
 
     final childWhenDragging = Visibility(
       visible: visible,
@@ -215,6 +262,7 @@ class _ReorderableDraggableState extends State<ReorderableDraggable>
   /// Called after dragging started.
   void _handleDragStarted() {
     widget.onDragStarted(_reorderableEntity);
+    _resetDecoration();
     _controller.forward();
   }
 
